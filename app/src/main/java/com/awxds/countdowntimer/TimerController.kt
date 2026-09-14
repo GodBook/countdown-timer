@@ -58,8 +58,7 @@ class TimerController(private val context: Context) {
         cancelAlarm()
         RingService.stopIfStarted()
         save(next)
-        PopupService.closeIfShowing()
-        return try { schedule(next); notifications.showActive(next); true }
+        return try { schedule(next); notifications.showActive(next); PopupService.ensure(context); true }
         catch (_: SecurityException) { save(next.reset()); notifications.clear(); false }
     }
     @Synchronized fun pause(token: Long = state.value.generation) {
@@ -75,7 +74,7 @@ class TimerController(private val context: Context) {
         if (current.generation != token || current.phase != Phase.PAUSED || !canSchedule()) return false
         val next = current.resume(SystemClock.elapsedRealtime())
         save(next)
-        return try { schedule(next); notifications.showActive(next); true }
+        return try { schedule(next); notifications.showActive(next); PopupService.ensure(context); true }
         catch (_: SecurityException) { save(current); false }
     }
     @Synchronized fun reset(token: Long = state.value.generation) {
@@ -101,13 +100,7 @@ class TimerController(private val context: Context) {
             } catch (_: IllegalStateException) { stopRinging(token); notifications.showFinished(state.value, true) }
               catch (_: SecurityException) { stopRinging(token); notifications.showFinished(state.value, true) }
         } else notifications.showFinished(next, true)
-        val app = context.applicationContext as TimerApp
-        if (next.mode.visual && !app.mainVisible.value && Settings.canDrawOverlays(context)) {
-            try {
-                context.startForegroundService(Intent(context, PopupService::class.java).putExtra("generation", token))
-            } catch (_: IllegalStateException) { /* Completion notification remains available. */ }
-              catch (_: SecurityException) { /* Permission may have been revoked concurrently. */ }
-        }
+        PopupService.ensure(context)
     }
     @Synchronized fun stopRinging(token: Long = state.value.generation, dismiss: Boolean = false) {
         val current = state.value
@@ -129,5 +122,6 @@ class TimerController(private val context: Context) {
             Phase.FINISHED -> if (current.ringing && current.ringDeadlineMs <= SystemClock.elapsedRealtime()) stopRinging()
             Phase.IDLE -> Unit
         }
+        PopupService.ensure(context)
     }
 }

@@ -83,4 +83,24 @@ class PopupIntegrationTest {
         assertFalse(PopupService.isShowing)
         assertEquals(Phase.IDLE, context.timer.state.value.phase)
     }
+    @Test fun reminderServiceIsPreparedBeforeAppLeavesForeground() {
+        main { app.mainVisible.value = true; context.timer.start(30_000, AlertMode.VISUAL) }
+        waitFor { PopupService.isPrepared }
+        assertEquals(Phase.RUNNING, context.timer.state.value.phase)
+        assertFalse(PopupService.isShowing)
+        main { app.mainVisible.value = false }
+        assertTrue(PopupService.isPrepared)
+    }
+    @Test fun completionDuringHomeTransitionIsNotLost() {
+        main { app.mainVisible.value = true; context.timer.start(1000, AlertMode.VISUAL) }
+        waitFor { context.timer.state.value.phase == Phase.FINISHED }
+        assertFalse(PopupService.isShowing)
+        // 1.1.1 never retried this completion after deciding the Activity was visible.
+        main { app.mainVisible.value = false }
+        waitFor { PopupService.isShowing }
+        main { app.mainVisible.value = true }
+        waitFor { !PopupService.isShowing }
+        main { app.mainVisible.value = false }
+        waitFor { PopupService.isShowing }
+    }
 }

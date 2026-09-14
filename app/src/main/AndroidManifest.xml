@@ -30,7 +30,7 @@
         <service android:name=".RingService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".PopupService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Display a user-requested countdown completion popup over other apps until acknowledged" />
+                android:value="Keep the active user-requested visual countdown ready to display its completion popup, including when the app is backgrounded" />
         </service>
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">

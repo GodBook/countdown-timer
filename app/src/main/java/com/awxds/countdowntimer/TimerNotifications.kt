@@ -32,8 +32,7 @@ class TimerNotifications(private val context: Context) {
     private fun base(channel: String) = Notification.Builder(context, channel).setSmallIcon(R.drawable.ic_timer)
         .setContentIntent(open()).setVisibility(Notification.VISIBILITY_PUBLIC).setCategory(Notification.CATEGORY_ALARM)
         .setShowWhen(false).setOnlyAlertOnce(true)
-    fun showActive(state: TimerState) {
-        manager.cancel(FINISHED_ID)
+    fun active(state: TimerState): Notification {
         val running = state.phase == Phase.RUNNING
         val builder = base(ACTIVE).setContentTitle(if (running) "倒计时进行中" else "倒计时已暂停")
             .setContentText(if (running) "到时${if (state.mode.sound) "响铃" else "提醒"} · ${state.mode.label}" else "剩余 ${formatTime(state.remainingMs)}")
@@ -42,7 +41,11 @@ class TimerNotifications(private val context: Context) {
             .addAction(action("取消", "CANCEL", state.generation))
         if (running) builder.setWhen(System.currentTimeMillis() + state.remaining(SystemClock.elapsedRealtime()))
             .setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
-        if (allowed()) manager.notify(ACTIVE_ID, builder.build())
+        return builder.build()
+    }
+    fun showActive(state: TimerState) {
+        manager.cancel(FINISHED_ID)
+        if (allowed()) manager.notify(ACTIVE_ID, active(state))
     }
     fun finished(state: TimerState, alert: Boolean): Notification = base(if (state.mode.visual) ALERT else QUIET)
         .setContentTitle("倒计时结束")
