@@ -16,7 +16,7 @@
 - 上述倒计时途中，使用模拟器 root 执行 `kill -9` 终止应用进程（不是系统强制停止）。进程从 PID 9208 恢复为 9750，到时在 Google 时钟应用上方出现居中弹窗。窗口检查为 `isVisible=true`、`HAS_DRAWN`。
 - 系统设置的通知页面测试：到时显示横幅通知，没有可见的居中窗口。因此不能承诺所有系统页面均允许显示悬浮窗。
 
-正式 APK SHA-256：`18a9ca10f77ec74775f41361b7cb02bffe4d6e114831026d3e3eab27d83226d1`。
+发布前实测 APK SHA-256：`18a9ca10f77ec74775f41361b7cb02bffe4d6e114831026d3e3eab27d83226d1`。发布脚本在提交后重新打包，最终发行文件的哈希见下方发布核验。
 
 截图保存在本地 `verification/screenshots/`：`popup-1.1.2-release-home.png`、`popup-1.1.2-release-recovery-clock.png`、`popup-1.1.2-release-settings.png`。早期 `release-other-app` 截图未成功启动新计时，不作为验收依据。
 
@@ -33,3 +33,11 @@
 用户反馈设备为 iQOO，已允许悬浮窗。本次没有连接该真机，以上结果不能替代 iQOO 定制系统验收。安装更新后，先重置现有计时，再使用“5 秒后台弹窗测试（返回桌面）”验证。应用显示实际提醒服务状态，并在 iQOO/vivo 上提供应用设置入口及后台权限提示。
 
 本次没有重新执行完整锁屏、休眠、重启及 Android 8～15 设备矩阵；已有版本记录单独保留。系统强制停止、厂商后台限制及安全页面的窗口限制仍可能阻断提醒。
+
+## 发布核验
+
+- 7 项计时和 8 项弹窗测试联合复测：`OK (15 tests)`，114.909 秒；本地日志 `popup-1.1.2-final-instrumentation.txt`。
+- GitHub 最新正式版本为 v1.1.2，发布代码提交为 `6ca1246047cddb2a2238356a140a5afea8516e49`；该提交的 GitHub Actions 构建成功（运行 ID 34829914323）。
+- 最终发行 APK 大小为 6,892,314 字节，SHA-256 为 `89441f34ecffc7feae4dda37df5728f6b419faae24dbe4c15fd235890c181611`。本地文件、GitHub 资产 digest 和下载的 update.json 三者一致，更新清单版本号为 4 / 1.1.2。
+- 最终发行 APK 再次安装并执行桌面 5 秒自测，截图确认居中弹窗显示：`screenshots/popup-1.1.2-published-home.png`。发行签名再次校验通过，与上述证书一致。
+- 发布资产含 APK、源码 ZIP、update.json 和 SHA256SUMS.txt。源码 ZIP 对应发布时的提交；本节为发布后的补充记录。
