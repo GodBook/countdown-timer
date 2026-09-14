@@ -15,6 +15,7 @@ import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -28,8 +29,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 
-/** A real, user-authorized overlay. It never launches a background Activity. */
+/** Owns every active countdown, independently of visual mode or overlay permission. */
 class PopupService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val overlayContext by lazy {
@@ -47,24 +49,36 @@ class PopupService : Service() {
     private var notificationId = 0
     private var observer: Job? = null
     private var retry: Job? = null
-    override fun onCreate() { super.onCreate(); instance = this }
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wakeDeadline = -1L
+    override fun onCreate() {
+        super.onCreate(); instance = this
+        ReminderDiagnostics.record(this, "service_created")
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Read authoritative state, not a stale alarm/intent token. The service is normally
         // started while the user is still in the app, before any background restriction.
         promote(timer.state.value)
+        ReminderDiagnostics.record(this, "service_ready action=${intent?.action ?: "prepare/restart"}")
+        if (intent?.action == "FINISH") {
+            val requested = intent.getLongExtra("generation", -1)
+            ReminderDiagnostics.record(this, "alarm_service_delivered token=$requested")
+            timer.finish(requested, "alarm_service")
+        }
         refresh()
         if (observer == null) observer = scope.launch {
             combine(timer.state, (application as TimerApp).mainVisible) { state, visible -> state to visible }
                 .collect { refresh() }
         }
-        // Independent fallback if a vendor delays the receiver but keeps the foreground service.
+        // Sleep until the monotonic deadline; state changes cancel the old wait immediately.
+        // The bounded partial wake lock keeps this fallback alive when the CPU would sleep.
         if (ticker == null) ticker = scope.launch {
-            while (isActive) {
-                val state = timer.state.value
-                if (state.phase == Phase.RUNNING && state.remaining(SystemClock.elapsedRealtime()) == 0L)
-                    timer.finish(state.generation)
-                delay(if (state.phase == Phase.RUNNING) state.remaining(SystemClock.elapsedRealtime()).coerceIn(50, 1000) else 1000)
+            timer.state.collectLatest { state ->
+                if (state.phase == Phase.RUNNING) {
+                    delay(state.remaining(SystemClock.elapsedRealtime()))
+                    timer.finish(state.generation, "service_deadline")
+                }
             }
         }
         return if (keepAlive(timer.state.value)) START_STICKY else START_NOT_STICKY
@@ -92,12 +106,31 @@ class PopupService : Service() {
         foreground = true
         if (previousId != 0 && previousId != id) getSystemService(android.app.NotificationManager::class.java).cancel(previousId)
     }
-    private fun keepAlive(state: TimerState) = state.mode.visual && Settings.canDrawOverlays(this) &&
-        (state.phase in setOf(Phase.RUNNING, Phase.PAUSED) || state.phase == Phase.FINISHED && !state.dismissed)
+    private fun keepAlive(state: TimerState) = state.phase in setOf(Phase.RUNNING, Phase.PAUSED) ||
+        state.phase == Phase.FINISHED && state.mode.visual && Settings.canDrawOverlays(this) && !state.dismissed
+    private fun updateWakeLock(state: TimerState) {
+        if (state.phase != Phase.RUNNING) { releaseWakeLock(); return }
+        if (wakeDeadline == state.deadlineMs && wakeLock?.isHeld == true) return
+        releaseWakeLock()
+        val remaining = state.remaining(SystemClock.elapsedRealtime())
+        if (remaining == 0L) return
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "countdowntimer:countdown").apply {
+                setReferenceCounted(false)
+                acquire(remaining + 5000)
+            }
+        wakeDeadline = state.deadlineMs
+        ReminderDiagnostics.record(this, "countdown_wake_acquired remaining=${remaining}ms")
+    }
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null; wakeDeadline = -1
+    }
     private fun refresh() {
         if (!foreground) return
         val state = timer.state.value
         if (!keepAlive(state)) { close(); return }
+        updateWakeLock(state)
         if (token != state.generation) { removePopup(); token = state.generation }
         promote(state)
         val shouldShow = state.phase == Phase.FINISHED && !(application as TimerApp).mainVisible.value
@@ -107,7 +140,8 @@ class PopupService : Service() {
         } else if (popup == null) {
             try {
                 showPopup(state)
-                mutableStatus.value = "结束弹窗已显示"
+                mutableStatus.value = "已提交结束弹窗"
+                ReminderDiagnostics.record(this, "overlay_attached token=${state.generation}")
                 getSharedPreferences("popup_diagnostics", MODE_PRIVATE).edit().clear().apply()
             } catch (e: RuntimeException) {
                 reportFailure(this, "系统未能显示弹窗", e)
@@ -171,6 +205,7 @@ class PopupService : Service() {
         popup = null; confirm = null
     }
     private fun close() {
+        releaseWakeLock()
         removePopup()
         if (foreground) {
             val state = timer.state.value
@@ -179,9 +214,11 @@ class PopupService : Service() {
             foreground = false
             stopSelf()
         }
-        mutableStatus.value = "开始视觉计时时自动准备后台提醒"
+        mutableStatus.value = "开始计时时自动准备后台提醒"
     }
     override fun onDestroy() {
+        releaseWakeLock()
+        ReminderDiagnostics.record(this, "service_destroyed phase=${timer.state.value.phase}")
         scope.cancel(); removePopup()
         if (instance === this) instance = null
         super.onDestroy()
@@ -189,13 +226,15 @@ class PopupService : Service() {
     companion object {
         const val POPUP_ID = 12
         private var instance: PopupService? = null
-        private val mutableStatus = MutableStateFlow("开始视觉计时时自动准备后台提醒")
+        private val mutableStatus = MutableStateFlow("开始计时时自动准备后台提醒")
         val status = mutableStatus.asStateFlow()
         internal val isShowing get() = instance?.popup != null
         internal val isPrepared get() = instance?.foreground == true
+        internal val isWakeHeld get() = instance?.wakeLock?.isHeld == true
         fun ensure(context: Context) {
             val state = context.timer.state.value
-            if (!state.mode.visual || state.phase == Phase.IDLE || state.dismissed || !Settings.canDrawOverlays(context)) return
+            if (state.phase == Phase.IDLE || state.dismissed) return
+            if (state.phase == Phase.FINISHED && (!state.mode.visual || !Settings.canDrawOverlays(context))) return
             instance?.takeIf { it.foreground }?.let { it.refresh(); return }
             try {
                 context.startForegroundService(Intent(context, PopupService::class.java))
@@ -203,6 +242,7 @@ class PopupService : Service() {
         }
         private fun reportFailure(context: Context, message: String, error: Throwable) {
             Log.e("TimerPopup", message, error)
+            ReminderDiagnostics.record(context, "failure: $message ${error.javaClass.simpleName}: ${error.message}")
             mutableStatus.value = "$message，请检查系统后台权限后重试。"
             context.getSharedPreferences("popup_diagnostics", Context.MODE_PRIVATE).edit()
                 .putString("lastFailure", "$message: ${error.javaClass.simpleName}: ${error.message}")

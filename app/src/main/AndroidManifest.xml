@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <application android:name=".TimerApp" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:label="计时器"
         android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
@@ -30,7 +31,7 @@
         <service android:name=".RingService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".PopupService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keep the active user-requested visual countdown ready to display its completion popup, including when the app is backgrounded" />
+                android:value="Run the user's active countdown in all reminder modes with a bounded partial wake lock and deliver the exact alarm directly, including when backgrounded or asleep" />
         </service>
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">

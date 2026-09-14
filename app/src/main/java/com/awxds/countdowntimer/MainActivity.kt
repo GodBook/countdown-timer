@@ -60,11 +60,13 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        ReminderDiagnostics.record(this, "activity_resumed phase=${timer.state.value.phase}")
         (application as TimerApp).mainVisible.value = true
         timer.reconcile()
         resumed.intValue++
     }
     override fun onPause() {
+        ReminderDiagnostics.record(this, "activity_paused phase=${timer.state.value.phase}")
         (application as TimerApp).mainVisible.value = false
         super.onPause()
     }
@@ -80,6 +82,7 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
     var seconds by rememberSaveable { mutableStateOf((state.durationMs / 1000 % 60).toString()) }
     var mode by rememberSaveable { mutableStateOf(state.mode) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var diagnostics by remember { mutableStateOf<String?>(null) }
     var permissionVersion by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         permissionVersion++
@@ -88,6 +91,7 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
     val channelsEnabled = remember(resumeVersion, permissionVersion) { controller.notifications.channelsEnabled() }
     val exactAllowed = remember(resumeVersion, permissionVersion) { controller.canSchedule() }
     val overlayAllowed = remember(resumeVersion) { Settings.canDrawOverlays(context) }
+    val batteryExempt = remember(resumeVersion) { ReminderDiagnostics.batteryExempt(context) }
     val popupStatus by PopupService.status.collectAsState()
     LaunchedEffect(notificationsAllowed, exactAllowed) { error = null }
     LaunchedEffect(Unit) {
@@ -100,7 +104,7 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
     LaunchedEffect(state.phase, state.generation) {
         while (state.phase == Phase.RUNNING) {
             now = SystemClock.elapsedRealtime()
-            if (state.remaining(now) == 0L) controller.finish(state.generation)
+            if (state.remaining(now) == 0L) controller.finish(state.generation, "ui_fallback")
             delay(200)
         }
         now = SystemClock.elapsedRealtime()
@@ -156,6 +160,7 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
                 Column(horizontalAlignment = Alignment.End) {
                     TextButton(onClick = { notificationSettings() }) { Text("通知设置") }
                     UpdateButton(resumeVersion, state)
+                    TextButton(onClick = { diagnostics = ReminderDiagnostics.report(context) }) { Text("提醒诊断") }
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -175,14 +180,35 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
                                 context.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
                             }
                         }) { Text("5 秒后台弹窗测试（返回桌面）") }
-                        if (Build.MANUFACTURER.equals("vivo", true) || Build.BRAND.equals("iqoo", true) || Build.BRAND.equals("vivo", true)) {
-                            Text("若系统仍拦截提醒，请在应用设置中检查后台弹出界面、自启动和后台运行选项（如提供）。", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }) { Text("打开应用设置") }
-                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
             }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("后台计时保护", style = MaterialTheme.typography.titleSmall)
+                    Text(if (batteryExempt) "系统电池优化已豁免" else "系统电池优化仍开启，后台响铃和弹窗可能延迟。", style = MaterialTheme.typography.bodySmall)
+                    Text(popupStatus, style = MaterialTheme.typography.bodySmall)
+                    if (!batteryExempt) TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:${context.packageName}")))
+                        }.onFailure {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                                .onFailure { error = "请在系统应用设置中允许计时器不受电池优化限制。" }
+                        }
+                    }) { Text("允许后台持续计时") }
+                    Text("运行倒计时时保持计时所需的 CPU 唤醒，可能增加耗电；暂停、重置或结束后释放。", style = MaterialTheme.typography.bodySmall)
+                    if (Build.MANUFACTURER.equals("vivo", true) || Build.BRAND.equals("iqoo", true) || Build.BRAND.equals("vivo", true)) {
+                        Text("iQOO / vivo：还需在系统设置中允许自启动与后台高耗电／不限制后台运行（名称以手机为准）。仅允许悬浮窗不能确保后台计时。", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }
+                                .onFailure { error = "请手动打开系统设置中的计时器应用详情。" }
+                        }) { Text("打开后台运行设置") }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
             if (!notificationsAllowed || !channelsEnabled || !exactAllowed) {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Column(Modifier.padding(16.dp)) {
@@ -254,6 +280,20 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
         AlertDialog(onDismissRequest = { controller.stopRinging(dismiss = true) }, title = { Text("时间到") },
             text = { Text("${formatTime(state.durationMs)} 的倒计时已结束。") },
             confirmButton = { TextButton(onClick = { controller.stopRinging(dismiss = true) }) { Text(if (state.ringing) "停止响铃" else "知道了") } })
+    }
+    diagnostics?.let { report ->
+        AlertDialog(onDismissRequest = { diagnostics = null }, title = { Text("提醒诊断") },
+            text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                Text("记录仅保存在手机上。若后台未提醒，可复制后反馈，用于定位停止在哪一步。")
+                Spacer(Modifier.height(12.dp))
+                Text(report, style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { TextButton(onClick = {
+                context.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("计时器提醒诊断", report))
+                diagnostics = null
+            }) { Text("复制诊断") } },
+            dismissButton = { TextButton(onClick = { diagnostics = null }) { Text("关闭") } })
     }
 }
 

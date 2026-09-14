@@ -40,17 +40,26 @@ class TimerController(private val context: Context) {
             .putBoolean("dismissed", value.dismissed).putInt("boot", boot).commit()
         mutable.value = value
     }
-    private fun alarmIntent(token: Long): PendingIntent = PendingIntent.getBroadcast(context, 100,
+    private fun legacyAlarmIntent(token: Long): PendingIntent = PendingIntent.getBroadcast(context, 100,
         Intent(context, TimerReceiver::class.java).setAction("FINISH").putExtra("generation", token),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    private fun cancelAlarm() { alarms.cancel(alarmIntent(state.value.generation)) }
+    private fun alarmIntent(token: Long): PendingIntent = PendingIntent.getForegroundService(context, 100,
+        Intent(context, PopupService::class.java).setAction("FINISH").putExtra("generation", token),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun cancelAlarm() {
+        alarms.cancel(alarmIntent(state.value.generation))
+        // Also revoke the broadcast alarm left by an installed 1.1.2 or earlier version.
+        alarms.cancel(legacyAlarmIntent(state.value.generation))
+    }
     private fun schedule(value: TimerState) {
+        alarms.cancel(legacyAlarmIntent(value.generation))
         val show = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         // Alarm-clock delivery avoids while-idle quotas for repeated short user timers.
         // Only this scheduling boundary uses wall time; persisted remaining time stays monotonic.
         val trigger = System.currentTimeMillis() + value.remaining(SystemClock.elapsedRealtime())
         alarms.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, show), alarmIntent(value.generation))
+        ReminderDiagnostics.record(context, "alarm_scheduled token=${value.generation} remaining=${value.remaining(SystemClock.elapsedRealtime())}ms")
     }
     @Synchronized fun start(duration: Long, mode: AlertMode): Boolean {
         if (!canSchedule()) return false
@@ -58,6 +67,7 @@ class TimerController(private val context: Context) {
         cancelAlarm()
         RingService.stopIfStarted()
         save(next)
+        ReminderDiagnostics.record(context, "start mode=$mode duration=${duration}ms batteryExempt=${ReminderDiagnostics.batteryExempt(context)}")
         return try { schedule(next); notifications.showActive(next); PopupService.ensure(context); true }
         catch (_: SecurityException) { save(next.reset()); notifications.clear(); false }
     }
@@ -85,7 +95,7 @@ class TimerController(private val context: Context) {
         RingService.stopIfStarted()
         notifications.clear()
     }
-    @Synchronized fun finish(token: Long) {
+    @Synchronized fun finish(token: Long, source: String = "receiver") {
         val previous = state.value
         if (previous.phase == Phase.RUNNING && previous.generation == token && previous.remaining(SystemClock.elapsedRealtime()) > 0) {
             if (canSchedule()) schedule(previous)
@@ -93,6 +103,8 @@ class TimerController(private val context: Context) {
         }
         val next = previous.finish(token, SystemClock.elapsedRealtime())
         if (next == previous) return
+        ReminderDiagnostics.record(context, "finish source=$source late=${(SystemClock.elapsedRealtime() - previous.deadlineMs).coerceAtLeast(0)}ms token=$token")
+        cancelAlarm()
         save(next)
         if (next.ringing) {
             try {
@@ -114,7 +126,7 @@ class TimerController(private val context: Context) {
         val current = state.value
         when (current.phase) {
             Phase.RUNNING -> {
-                if (current.remaining(SystemClock.elapsedRealtime()) == 0L) finish(current.generation)
+                if (current.remaining(SystemClock.elapsedRealtime()) == 0L) finish(current.generation, "foreground_recovery")
                 else if (canSchedule()) { schedule(current); notifications.showActive(current) }
                 else { cancelAlarm(); save(current.pause(SystemClock.elapsedRealtime())); notifications.showActive(state.value) }
             }
