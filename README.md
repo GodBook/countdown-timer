@@ -4,13 +4,14 @@
 
 ## 安装和使用
 
-公开仓库：[GodBook/countdown-timer](https://github.com/GodBook/countdown-timer)。从 [最新版本](https://github.com/GodBook/countdown-timer/releases/latest) 下载 APK，或使用本地 `dist/countdown-timer-1.1.0.apk`。支持 Android 8.0（API 26）及以上，目标平台为 Android 16（API 36）。将 APK 发送到手机，通过文件管理器打开；如系统要求，允许该文件管理器安装应用。
+公开仓库：[GodBook/countdown-timer](https://github.com/GodBook/countdown-timer)。从 [最新版本](https://github.com/GodBook/countdown-timer/releases/latest) 下载 APK，或使用本地 `dist/countdown-timer-1.1.1.apk`。支持 Android 8.0（API 26）及以上，目标平台为 Android 16（API 36）。将 APK 发送到手机，通过文件管理器打开；如系统要求，允许该文件管理器安装应用。
 
 首次打开允许通知。Android 12 还需按应用提示允许“闹钟和提醒”。输入时、分、秒，或选择 1／5／10／25 分钟，选择提醒方式，点击“开始计时”。下滑通知栏可查看剩余时间，或暂停、继续、取消。
 
 - 同时运行一个倒计时，时长 1 秒至 99 小时 59 分 59 秒。
 - 暂停保留剩余时间；重置恢复本次设定时长，等待重新开始；取消清除当前通知。
-- 视觉提醒：应用内弹窗；后台通过系统结束通知提醒。横幅能否弹出由系统通知类别设置决定。
+- 视觉提醒：应用内弹窗；1.1.1 起授予悬浮窗权限后，也会在其他应用上方弹窗。主界面选择视觉提醒后点击“允许后台弹窗”，在系统中允许计时器显示在其他应用上层。没有权限时保留通知提醒。锁屏、系统权限页或主动禁止悬浮窗的安全界面可能不显示浮窗，可通过通知或解锁后查看。
+- 后台视觉弹窗保持到确认关闭，系统显示“结束弹窗正在显示”的服务通知；点击弹窗或通知的完成按钮关闭。返回应用会移除悬浮窗，转为应用内弹窗。响铃超时不会自动关闭视觉提醒。
 - 响铃：使用系统默认闹钟声音和闹钟音量，持续最多 1 分钟。可在应用或通知内提前停止。仅响铃模式也保留通知中的停止入口。
 - 自动停止铃声后保留结束记录；点击“完成”清除。
 - 熄屏、切换应用和正常进程回收不依赖界面继续计时；手机重启取消当前倒计时，包括暂停状态。
@@ -59,7 +60,7 @@ $env:JAVA_HOME = 'D:\dev\jdk-17'
 
 ## 发行签名与更新
 
-当前应用 ID 为 `com.awxds.countdowntimer`，版本 `1.1.0`，`versionCode=2`。发行 APK 使用专用 RSA 签名，调试签名与其不同。后续更新必须保留应用 ID、使用相同发行密钥，并提高 `app/build.gradle.kts` 中的 `versionCode`。
+当前应用 ID 为 `com.awxds.countdowntimer`，版本 `1.1.1`，`versionCode=3`。发行 APK 使用专用 RSA 签名，调试签名与其不同。后续更新必须保留应用 ID、使用相同发行密钥，并提高 `app/build.gradle.kts` 中的 `versionCode`。
 
 本机签名材料保存在 `%USERPROFILE%\.codex\signing\countdown-timer\`：
 

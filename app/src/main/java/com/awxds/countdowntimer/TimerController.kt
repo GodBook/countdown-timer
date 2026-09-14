@@ -58,6 +58,7 @@ class TimerController(private val context: Context) {
         cancelAlarm()
         RingService.stopIfStarted()
         save(next)
+        PopupService.closeIfShowing()
         return try { schedule(next); notifications.showActive(next); true }
         catch (_: SecurityException) { save(next.reset()); notifications.clear(); false }
     }
@@ -81,6 +82,7 @@ class TimerController(private val context: Context) {
         if (state.value.generation != token) return
         cancelAlarm()
         save(state.value.reset())
+        PopupService.closeIfShowing()
         RingService.stopIfStarted()
         notifications.clear()
     }
@@ -99,11 +101,19 @@ class TimerController(private val context: Context) {
             } catch (_: IllegalStateException) { stopRinging(token); notifications.showFinished(state.value, true) }
               catch (_: SecurityException) { stopRinging(token); notifications.showFinished(state.value, true) }
         } else notifications.showFinished(next, true)
+        val app = context.applicationContext as TimerApp
+        if (next.mode.visual && !app.mainVisible.value && Settings.canDrawOverlays(context)) {
+            try {
+                context.startForegroundService(Intent(context, PopupService::class.java).putExtra("generation", token))
+            } catch (_: IllegalStateException) { /* Completion notification remains available. */ }
+              catch (_: SecurityException) { /* Permission may have been revoked concurrently. */ }
+        }
     }
     @Synchronized fun stopRinging(token: Long = state.value.generation, dismiss: Boolean = false) {
         val current = state.value
         if (current.generation != token || current.phase != Phase.FINISHED) return
         save(current.copy(ringing = false, ringDeadlineMs = 0, dismissed = current.dismissed || dismiss))
+        if (dismiss) PopupService.closeIfShowing()
         RingService.stopIfStarted()
         notifications.showFinished(state.value, false)
     }

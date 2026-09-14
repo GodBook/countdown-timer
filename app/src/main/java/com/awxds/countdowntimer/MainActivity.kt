@@ -63,6 +63,14 @@ class MainActivity : ComponentActivity() {
         timer.reconcile()
         resumed.intValue++
     }
+    override fun onStart() {
+        super.onStart()
+        (application as TimerApp).mainVisible.value = true
+    }
+    override fun onStop() {
+        (application as TimerApp).mainVisible.value = false
+        super.onStop()
+    }
 }
 
 @Composable
@@ -82,6 +90,7 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
     val notificationsAllowed = remember(resumeVersion, permissionVersion) { controller.notifications.allowed() }
     val channelsEnabled = remember(resumeVersion, permissionVersion) { controller.notifications.channelsEnabled() }
     val exactAllowed = remember(resumeVersion, permissionVersion) { controller.canSchedule() }
+    val overlayAllowed = remember(resumeVersion) { Settings.canDrawOverlays(context) }
     LaunchedEffect(notificationsAllowed, exactAllowed) { error = null }
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences("ui", 0)
@@ -152,6 +161,20 @@ private fun TimerScreen(controller: TimerController, resumeVersion: Int) {
                 }
             }
             Spacer(Modifier.height(24.dp))
+            if (mode.visual) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(if (overlayAllowed) "后台弹窗已开启" else "开启后台弹窗", style = MaterialTheme.typography.titleSmall)
+                        Text(if (overlayAllowed) "时间到时，可在其他应用上方显示提醒。" else "允许悬浮窗后，时间到时可在其他应用上方弹窗；未开启时后台仅显示通知。",
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) }
+                                .onFailure { error = "无法打开悬浮窗设置，请在系统设置中允许计时器显示在其他应用上层。" }
+                        }) { Text(if (overlayAllowed) "管理弹窗权限" else "允许后台弹窗") }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             if (!notificationsAllowed || !channelsEnabled || !exactAllowed) {
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Column(Modifier.padding(16.dp)) {

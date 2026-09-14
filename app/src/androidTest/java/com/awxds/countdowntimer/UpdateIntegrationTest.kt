@@ -17,7 +17,7 @@ class UpdateIntegrationTest {
         }
         return file
     }
-    private fun info(file: File) = UpdateInfo(3, "1.1.1", "https://github.com/GodBook/countdown-timer/releases/download/v1.1.1/timer.apk",
+    private fun info(file: File) = UpdateInfo(BuildConfig.VERSION_CODE.toLong() + 1, "1.1.1", "https://github.com/GodBook/countdown-timer/releases/download/v1.1.1/timer.apk",
         MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }, file.length(), 26, "test")
     @Test fun validFutureApkAcceptedAndWrongSignerRejected() {
         val manager = UpdateManager(context)
