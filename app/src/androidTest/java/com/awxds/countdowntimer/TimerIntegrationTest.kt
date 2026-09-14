@@ -37,8 +37,10 @@ class TimerIntegrationTest {
         val remaining = controller.state.value.remainingMs
         Thread.sleep(300)
         assertEquals(remaining, controller.state.value.remaining(SystemClock.elapsedRealtime()))
+        waitFor { notifications.any { it.id == TimerNotifications.ACTIVE_ID && it.notification.actions?.firstOrNull()?.title?.toString() == "继续" } }
         notifications.first { it.id == TimerNotifications.ACTIVE_ID }.notification.actions[0].actionIntent.send()
         waitFor { controller.state.value.phase == Phase.RUNNING }
+        waitFor { notifications.any { it.id == TimerNotifications.ACTIVE_ID && it.notification.actions?.firstOrNull()?.title?.toString() == "暂停" } }
         notifications.first { it.id == TimerNotifications.ACTIVE_ID }.notification.actions[1].actionIntent.send()
         waitFor { controller.state.value.phase == Phase.IDLE && notifications.isEmpty() }
     }
