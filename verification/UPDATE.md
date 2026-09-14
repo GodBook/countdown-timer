@@ -9,4 +9,11 @@
 - 更新检查与下载使用 HTTPS，只接受指定 GitHub 仓库的 Release APK。下载完成后再次核对包名、版本和签名，安装前重新校验本地文件。
 - 更新服务端使用 GitHub Release 的 `update.json`，更新清单及附件先放入草稿 Release，完整上传后再公开。
 
+## 公开发布后的完整安装实测
+
+- 公开仓库 `GodBook/countdown-timer` 与正式 Release `v1.1.0` 已创建，APK、源码包、SHA256SUMS.txt 和 update.json 均公开可下载。公开清单与本地签名 APK 的版本、文件大小和哈希匹配。
+- 在 Android 16 模拟器安装了仅用于验证的旧 versionCode=1 更新客户端（与发行版相同签名），前台自动检查发现 1.1.0；通过真实 GitHub HTTPS 下载约 6.9 MB APK，完成大小、哈希、包名、版本和签名校验。
+- 从应用打开系统“安装未知应用”设置并授权，返回应用点击“安装更新”，系统显示 Update 确认。确认后出现 App installed，系统包信息变为 versionCode=2、versionName=1.1.0。未通过 adb 代替实际安装步骤。
+- 该旧版本验证客户端没有公开发布；原始 1.0.0 用户仍须先手动安装 1.1.0 一次。
+
 实际用户安装仍需 Android 确认，不提供静默安装。网络无法访问 GitHub 时会显示手动检查失败提示，计时本身不受影响。
